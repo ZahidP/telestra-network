@@ -6,6 +6,33 @@ import datetime as dtime
 import sys
 import time
 
+
+def slice_n_dice(df,df2,key,value):
+    df[key].unique().tolist()
+
+# if not train we pass in blist to map values
+# otherwise if train, we create the map
+def fsev_count(df,fsev,bin,train,blist,bidx):
+    colname = 'fsev_' + str(fsev) + '_' + str(bin)
+    if train:
+        a = df[df['fault_severity']==fsev]
+        b = a[bin].value_counts()[0:40]
+        blist = b.tolist()
+        bidx = b.index
+        bdf = pd.DataFrame(b)
+    df[colname] = 0
+    #subset = df.loc[df.location.isin(a.index)]
+    for i in range(0,len(blist)):
+        percentile = blist[i]/np.sum(blist)
+        locstr = str(bidx[i])
+        subset = df.location == locstr
+        df = df.set_value(df.location==locstr,colname,percentile)
+    rval = df
+    if train:
+        rval = [df, blist,bidx]
+    return rval
+
+
 def countsfn(bins,items,df,extra,bar):
     colsf = df[bins].ravel()
     unique = pd.Series(colsf).unique()
@@ -108,3 +135,48 @@ def mendgroups(results,test,col):
         rs0 = results[col].isin(diffrt)
         results.set_value(rs0,col,'other')
     return results, test
+
+
+# binning data by a particular bin, we get ID counts for that bin
+# and for each severity level
+# this is no longer used
+def slice_n_dice(results,bin):
+    print('slice_n_dice')
+    start = time.time()
+    bins = str(bin)
+    b_name0 = ''.join([bin,'_sev0_top20'])
+    b_name1 = ''.join([bin,'_sev1_top20'])
+    b_name2 = ''.join([bin,'_sev2_top20'])
+    # variable creation
+    sev2_loc =  helpers.countsfn(bins,'id',results.loc[results.fault_severity==2],'extra',True)
+    sev1_loc =  helpers.countsfn(bins,'id',results.loc[results.fault_severity==1],'extra',True)
+    sev0_loc =  helpers.countsfn(bins,'id',results.loc[results.fault_severity==0],'extra',True)
+    sev2_loc = sev2_loc[0:30]
+    sev1_loc = sev1_loc[0:30]
+    sev0_loc = sev0_loc[0:30]
+    # or we could do percentile?? make it non-categorical
+    results[b_name0] = 0
+    results[b_name1] = 0
+    results[b_name2] = 0
+    sev0_40 = []
+    sev1_40 = []
+    sev2_40 = []
+    [sev0_40.append(x[0]) for x in sev0_loc]
+    [sev1_40.append(x[0]) for x in sev1_loc]
+    [sev2_40.append(x[0]) for x in sev2_loc]
+    lists = [sev0_40, sev1_40, sev2_40]
+    rs0 = results[bins].isin(sev0_40)
+    rs1 = results[bins].isin(sev1_40)
+    rs2 = results[bins].isin(sev2_40)
+    res0 = results.loc[rs0]
+    res1 = results.loc[rs1]
+    res2 = results.loc[rs2]
+    # results.set_value(rs0,b_name0,1)
+    # results.set_value(rs1,b_name1,1)
+    # results.set_value(rs2,b_name2,1)
+    results = rowquantilefn(results,sev0_40,b_name0,bins)
+    results = rowquantilefn(results,sev1_40,b_name1,bins)
+    results = rowquantilefn(results,sev2_40,b_name2,bins)
+    end = time.time()
+    print(end - start)
+    return results, lists

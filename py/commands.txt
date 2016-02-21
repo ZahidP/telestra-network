@@ -82,6 +82,22 @@ for i in range(0,len(cols)):
 a.columns = ['predict_0','predict_1','predict_2','id']
 a.to_csv('../data/submit5.csv',index=False)
 
+---
+
+feature_importance = c1.feature_importances_
+# make importances relative to max importance
+feature_importance = 100.0 * (feature_importance / feature_importance.max())
+sorted_idx = np.argsort(feature_importance)
+pos = np.arange(sorted_idx.shape[0]) + .5
+plt.subplot(1, 2, 2)
+plt.barh(pos, feature_importance[sorted_idx], align='center')
+plt.yticks(pos, testx.columns[sorted_idx])
+plt.xlabel('Relative Importance')
+plt.title('Variable Importance')
+plt.show()
+
+--
+
 
 
 ----------------
@@ -115,14 +131,33 @@ results = main.extract(False)
 train, y, test = main.do_all(results, test,True)
 tid = test['id']
 tid = tid.copy()
-c1,c2,c3,tid, testx, hout = fits(train,y,tid,test,True)
+c1,c2,c3,clfsvm, tid, testx, hout = main.fits(train,y,tid,test,True)
 pred = main.plot_predict(c1,c2,c3,tid,testx, hout,True)
 [df1, df2, df3, pred1, pred2, pred3] = pred
 df1.columns = ['predict_0','predict_1','predict_2','id']
-df1.to_csv('../data/submit5a.csv',index=False)
+df1.to_csv('../data/submit5b.csv',index=False)
 df2.columns = ['predict_0','predict_1','predict_2','id']
-df2.to_csv('../data/submit6a.csv',index=False)
+df2.to_csv('../data/submit6b.csv',index=False)
 df3.columns = ['predict_0','predict_1','predict_2','id']
 df4.columns = ['predict_0','predict_1','predict_2','id']
 df3.to_csv('../data/submit7.csv',index=False)
 df4.to_csv('../data/submit8.csv',index=False)
+
+-------
+
+a = results[results.fault_severity==0].location.value_counts()[0:15]
+c = results[results.fault_severity==2].location.value_counts()[0:15]
+b = results[results.fault_severity==1].location.value_counts()[0:15]
+
+------
+
+fsev_count(results,0,'location',True,[])
+
+
+--------------
+
+
+try out
+--------
+- total number of event types per event id
+- applying frequency counts to event type

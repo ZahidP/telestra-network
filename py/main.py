@@ -8,8 +8,10 @@ import helpers
 import time
 import math
 
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier, GradientBoostingRegressor
 from sklearn.metrics import roc_curve, auc
+from sklearn.svm import SVC
 
 # clf = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=1, random_state=0).fit(rsx2, rsy2)
 
@@ -31,47 +33,8 @@ def extract(test):
     # results_2 = pd.merge(train,results,left_index="true", right_index="right" how="left", on="id")
     return results
 
-def slice_n_dice(results,bin):
-    print('slice_n_dice')
-    start = time.time()
-    bins = str(bin)
-    b_name0 = ''.join([bin,'_sev0_top20'])
-    b_name1 = ''.join([bin,'_sev1_top20'])
-    b_name2 = ''.join([bin,'_sev2_top20'])
-    # variable creation
-    sev2_loc =  helpers.countsfn(bins,'id',results.loc[results.fault_severity==2],'extra',True)
-    sev1_loc =  helpers.countsfn(bins,'id',results.loc[results.fault_severity==1],'extra',True)
-    sev0_loc =  helpers.countsfn(bins,'id',results.loc[results.fault_severity==0],'extra',True)
-    sev2_loc = sev2_loc[0:30]
-    sev1_loc = sev1_loc[0:30]
-    sev0_loc = sev0_loc[0:30]
-    # or we could do percentile?? make it non-categorical
-    results[b_name0] = 0
-    results[b_name1] = 0
-    results[b_name2] = 0
-    sev0_40 = []
-    sev1_40 = []
-    sev2_40 = []
-    [sev0_40.append(x[0]) for x in sev0_loc]
-    [sev1_40.append(x[0]) for x in sev1_loc]
-    [sev2_40.append(x[0]) for x in sev2_loc]
-    lists = [sev0_40, sev1_40, sev2_40]
-    rs0 = results[bins].isin(sev0_40)
-    rs1 = results[bins].isin(sev1_40)
-    rs2 = results[bins].isin(sev2_40)
-    res0 = results.loc[rs0]
-    res1 = results.loc[rs1]
-    res2 = results.loc[rs2]
-    # results.set_value(rs0,b_name0,1)
-    # results.set_value(rs1,b_name1,1)
-    # results.set_value(rs2,b_name2,1)
-    results = rowquantilefn(results,sev0_40,b_name0,bins)
-    results = rowquantilefn(results,sev1_40,b_name1,bins)
-    results = rowquantilefn(results,sev2_40,b_name2,bins)
-    end = time.time()
-    print(end - start)
-    return results, lists
 
+# maps = list
 def map_to(test, maps, bin):
     bins = str(bin)
     b_name0 = ''.join([bin,'_sev0_top20'])
@@ -96,17 +59,26 @@ def do_all(results,test, predict):
     results, test = helpers.mendgroups(results,test,'event_type')
     print(len(results.columns))
     print(len(test.columns))
-    results, qmaps1 = slice_n_dice(results, 'location')
-    results, qmaps2 = slice_n_dice(results, 'log_feature')
+    # results, qmaps1 = slice_n_dice(results, 'location')
+    # results, qmaps2 = slice_n_dice(results, 'log_feature')
+    # location percentile
+    for sevi in range(0,3):
+        dfl = helpers.fsev_count(results,sevi,'location',True,[],[])
+        results = dfl[0]
+        test = helpers.fsev_count(test,sevi,'location',False,dfl[1],dfl[2])
+        # log feature percentile
+        dflf = helpers.fsev_count(results,sevi,'log_feature',True,[],[])
+        results = dflf[0]
+        test = helpers.fsev_count(test,sevi,'log_feature',False,dflf[1],dflf[2])
     print('assigncounts')
     start2 = time.time()
     results = helpers.assigncounts(results)
-    test = helpers.assigncounts(test)
+    testx = helpers.assigncounts(test)
     end2 = time.time()
     print(end2 - start2)
     print('-----')
-    test = map_to(test, qmaps1, 'location')
-    testx = map_to(test, qmaps2, 'log_feature')
+    # test = map_to(test, qmaps1, 'location')
+    # testx = map_to(test, qmaps2, 'log_feature')
     summarize(results,False, True)
     summarize(testx,False, False)
     resultsx = results.ix[:,results.columns != 'fault_severity']
@@ -125,39 +97,46 @@ def fits(resultsx,resultsy,tid,testx,predict):
     print('Predictions')
     print('---------')
     start = time.time()
-    #tid = testx['id']
-    # del resultsx['id']
-    # del testx['id']
-    # testx = helpers.removecols(testx)
+    if 'id' in resultsx.columns:
+        tid = testx['id']
+        del resultsx['id']
+        del testx['id']
+        testx = helpers.removecols(testx)
     train_len = math.floor(len(resultsx)*(3/4))
     train = resultsx.iloc[0:train_len]
     trainy = resultsy.iloc[0:train_len]
     holdout = resultsx.iloc[train_len:len(resultsx)]
     holdouty = resultsy.iloc[train_len:len(resultsx)]
-    n_est, mdep, lrate = 700, 5, .015
-    n_est2, mdep2, lrate2 = 500, 5, .02
+    n_est, mdep, lrate = 600, 7, .03
+    n_est2, mdep2, lrate2 = 700, 8, .025
     print('GB1')
     print('n_estimators:' + str(n_est) + ' -- mdep: ' + str(mdep) + ' -- lrate: ' + str(lrate))
     startgb1 = time.time()
     clf1 = GradientBoostingClassifier(n_estimators=n_est, max_depth=mdep, learning_rate=lrate, max_features='auto', random_state=0).fit(train, trainy)
     endgb1 = time.time()
+    print(clf1.score(holdout, holdouty))
     print(endgb1 - startgb1)
     print('GB2')
     print('n_estimators:' + str(n_est2) + ' -- mdep: ' + str(mdep2) + ' -- lrate: ' + str(lrate2))
     startgb1 = time.time()
     clf2 = GradientBoostingClassifier(n_estimators=n_est, max_depth=mdep2, learning_rate=lrate2,random_state=1).fit(train, trainy)
     endgb1 = time.time()
+    print(clf2.score(holdout, holdouty))
     print(endgb1 - startgb1)
     startgb1 = time.time()
-    clf3 = RandomForestClassifier(n_estimators=800, max_features='auto').fit(train, trainy)
+    clf3 = RandomForestClassifier(n_estimators=700, max_features='auto').fit(train, trainy)
     #nnet = MLPClassifier(algorithm='l-bfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=1).fit(train, trainy)
     endgb1 = time.time()
     print(endgb1 - startgb1)
+    clfsvm = SVC().fit(train, trainy)
+    # SVC(C=1.0, cache_size=200, class_weight=None, coef0=0.0,
+    # decision_function_shape='ovo', degree=3, gamma='auto', kernel='rbf',
+    # max_iter=-1, probability=False, random_state=None, shrinking=True,
+    # tol=0.001, verbose=False)
     testx = testx.ix[:,resultsx.columns]
     print('Scores: GBM1, GBM2, RF')
-    print(clf1.score(holdout, holdouty))
-    print(clf2.score(holdout, holdouty))
     print(clf3.score(holdout, holdouty))
+    print(clfsvm.score(holdout, holdouty))
     #print(nnet.score(holdout, holdouty))
     print('Score on whole train set:')
     print(clf1.score(resultsx, resultsy))
@@ -168,7 +147,24 @@ def fits(resultsx,resultsy,tid,testx,predict):
     print(len(resultsx.columns))
     print(len(testx.columns))
     hout = [holdout, holdouty, y_pred]
-    return clf1, clf2, clf3, tid, testx, hout
+    return clf1, clf2, clf3, clfsvm, tid, testx, hout
+
+
+def feature_imp(clf2,hout,feats):
+    holdout = hout[0]
+    holdouty = hout[1]
+    y_pred = clf2.predict(holdout)
+    feature_importance = clf2.feature_importances_[0:feats]
+    # make importances relative to max importance
+    feature_importance = 100.0 * (feature_importance / feature_importance.max())
+    sorted_idx = np.argsort(feature_importance)
+    pos = np.arange(sorted_idx.shape[0]) + .5
+    plt.subplot(1, 2, 2)
+    plt.barh(pos, feature_importance[sorted_idx], align='center')
+    plt.yticks(pos, holdout.columns[sorted_idx][0:feats])
+    plt.xlabel('Relative Importance')
+    plt.title('Variable Importance')
+    plt.show()
 
 
 def plot_predict(clf1, clf2, clf3, tid, testx, hout, predict):
@@ -203,14 +199,21 @@ def plot_predict(clf1, clf2, clf3, tid, testx, hout, predict):
     print(end - start)
     return rval
 
+
 def pred_to_df(pred1, testx, tid):
     df_sub = pd.DataFrame(pred1)
     df_sub = df_sub.set_index(testx.index)
+    print(len(df_sub))
     df_sub['id'] = tid
     df3 = df_sub
+    print(len(df3))
     df3 = df3.drop_duplicates('id')
+    print(len(df3))
     return df3
 
+
+# whole DataFrame
+# list of top 30
 def rowquantilefn(df,list1,bname,bins):
     l_len = len(list1)
     for i in range(0,len(list1)):
