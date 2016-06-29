@@ -126,18 +126,17 @@ print(lf_1)
 
 import main
 import helpers
-test = main.extract(True)
-results = main.extract(False)
+[results,test] = main.extract()
 train, y, test = main.do_all(results, test,True)
 tid = test['id']
 tid = tid.copy()
-c1,c2,c3,clfsvm, tid, testx, hout = main.fits(train,y,tid,test,True)
-pred = main.plot_predict(c1,c2,c3,tid,testx, hout,True)
-[df1, df2, df3, pred1, pred2, pred3] = pred
+c1,c3,clfsvm, tid, testx, hout = fits(train,y,tid,test,True)
+pred = main.plot_predict(c1,c3,tid,testx, hout,True)
+[df1,df3,pred1,pred3] = pred
 df1.columns = ['predict_0','predict_1','predict_2','id']
-df1.to_csv('../data/submit5b.csv',index=False)
+df1.to_csv('../data/submit5a.csv',index=False)
 df2.columns = ['predict_0','predict_1','predict_2','id']
-df2.to_csv('../data/submit6b.csv',index=False)
+df2.to_csv('../data/submit6a.csv',index=False)
 df3.columns = ['predict_0','predict_1','predict_2','id']
 df4.columns = ['predict_0','predict_1','predict_2','id']
 df3.to_csv('../data/submit7.csv',index=False)
@@ -148,6 +147,12 @@ df4.to_csv('../data/submit8.csv',index=False)
 a = results[results.fault_severity==0].location.value_counts()[0:15]
 c = results[results.fault_severity==2].location.value_counts()[0:15]
 b = results[results.fault_severity==1].location.value_counts()[0:15]
+
+--------
+
+sev2_loc =  countsfn('id','log_feature',results.loc[results.fault_severity==2],'extra',True)
+sev1_loc =  countsfn('id','log_feature',results.loc[results.fault_severity==1],'extra',True)
+sev0_loc =  countsfn('id','log_feature',results.loc[results.fault_severity==0],'extra',True)
 
 ------
 
@@ -161,3 +166,12 @@ try out
 --------
 - total number of event types per event id
 - applying frequency counts to event type
+- pattern mining --> maybe we can look into these techniques
+--- while they might not be sequential, maybe a combination of resources or logs (sequential or otherwise)
+can indicate something important
+- consider whether or not to train on duplicate row ids or to just train on single instances since the test set results will be as such
+---- if we do this we can only really train on item sets or cumulative features
+---- example: get percentiles, but then sum them up per event
+
+
+eventd.ix[:,eventd.columns != 'id'].sum()

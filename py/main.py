@@ -8,30 +8,45 @@ import helpers
 import time
 import math
 
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier, GradientBoostingRegressor
 from sklearn.metrics import roc_curve, auc
 from sklearn.svm import SVC
+from sklearn import datasets
+from sklearn.cross_validation import train_test_split
+from sklearn.grid_search import GridSearchCV
+from sklearn.metrics import classification_report
+
 
 # clf = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=1, random_state=0).fit(rsx2, rsy2)
 
-def extract(test):
+
+def extract():
     # read training set
     resource = pd.read_csv('../data/resource_type.csv')
     log_feature = pd.read_csv('../data/log_feature.csv')
     severity_type = pd.read_csv('../data/severity_type.csv')
     event = pd.read_csv('../data/event_type.csv')
-    if test:
-        train = pd.read_csv('../data/test.csv', index_col='id')
-    else:
-        train = pd.read_csv('../data/train.csv', index_col='id')
+    print('Fixing event type')
+    event, resource = event.iloc[0:(round(.5*len(event)))], resource.iloc[0:(round(.5*len(resource)))]
+    severity_type = severity_type.iloc[0:(round(.5*len(severity_type)))]
+    log_feature = log_feature.iloc[0:(round(.5*len(log_feature)))]  
+    event = helpers.fix_event_type(event)
+    #if dotest:
+    test = pd.read_csv('../data/test.csv', index_col='id')
+    #if dotrain:
+    train = pd.read_csv('../data/train.csv', index_col='id')
+    print('Merge resource and event')
     result = pd.merge(resource, event, how="left",on="id")
-    results = pd.merge(result,log_feature, how="left")
-    #results = results.set_index(['id'])
-    results = pd.merge(train,results,left_index="true", how="left",right_on="id")
-    # results = pd.merge(train,results,left_index="true", right_index="true", how="left")
-    # results_2 = pd.merge(train,results,left_index="true", right_index="right" how="left", on="id")
-    return results
+    print('Merge resource-event and severity type')
+    result = pd.merge(result, severity_type, how="left",on="id")
+    results = pd.merge(result, log_feature, how="left")
+    # results = results.set_index(['id'])
+    # retvals = []
+    print('Merge all')
+    train = pd.merge(train, results, left_index="true", how="left", right_on="id")
+    test = pd.merge(test, results, left_index="true", how="left", right_on="id")
+    return [train, test]
 
 
 # maps = list
@@ -53,47 +68,50 @@ def map_to(test, maps, bin):
     return test
 
 
-def do_all(results,test, predict):
+def do_all(results: pd.DataFrame, test: pd.DataFrame, predict: bool):
     start = time.time()
-    results, test = helpers.mendgroups(results,test,'resource_type')
-    results, test = helpers.mendgroups(results,test,'event_type')
+    results, test = helpers.mendgroups(results, test, 'resource_type')
+    # results, test = helpers.mendgroups(results,test,'event_type')
     print(len(results.columns))
     print(len(test.columns))
     # results, qmaps1 = slice_n_dice(results, 'location')
-    # results, qmaps2 = slice_n_dice(results, 'log_feature')
-    # location percentile
-    for sevi in range(0,3):
-        dfl = helpers.fsev_count(results,sevi,'location',True,[],[])
+
+    for severity in range(0, 3):
+        # location percentile
+        dfl = helpers.fsev_count(results, severity, 'location', True, [], [])
         results = dfl[0]
-        test = helpers.fsev_count(test,sevi,'location',False,dfl[1],dfl[2])
+        test = helpers.fsev_count(test, severity, 'location', False, dfl[1], dfl[2])
         # log feature percentile
-        dflf = helpers.fsev_count(results,sevi,'log_feature',True,[],[])
+        dflf = helpers.fsev_count(results, severity, 'log_feature', True, [], [])
         results = dflf[0]
-        test = helpers.fsev_count(test,sevi,'log_feature',False,dflf[1],dflf[2])
+        test = helpers.fsev_count(test, severity, 'log_feature', False, dflf[1], dflf[2])
     print('assigncounts')
     start2 = time.time()
     results = helpers.assigncounts(results)
     testx = helpers.assigncounts(test)
+    results = collapse_ids(results)
+    testx = collapse_ids(testx)
     end2 = time.time()
     print(end2 - start2)
     print('-----')
-    # test = map_to(test, qmaps1, 'location')
-    # testx = map_to(test, qmaps2, 'log_feature')
-    summarize(results,False, True)
-    summarize(testx,False, False)
-    resultsx = results.ix[:,results.columns != 'fault_severity']
-    resultsy = results.ix[:,'fault_severity']
-    resultsx = pd.merge(resultsx,pd.get_dummies(resultsx.event_type),left_index=True,right_index=True,how="left")
-    resultsx = pd.merge(resultsx,pd.get_dummies(resultsx.resource_type),left_index=True,right_index=True,how="left")
+
+    # summarize(results,False, True)
+    # summarize(testx,False, False)
+    resultsx = results.ix[:, results.columns != 'fault_severity']
+    resultsy = results.ix[:, 'fault_severity']
+    # resultsx = pd.merge(resultsx,pd.get_dummies(resultsx.event_type),left_index=True,right_index=True,how="left")
+    resultsx = pd.merge(resultsx, pd.get_dummies(resultsx.resource_type), left_index=True,right_index=True,how="left")
+    resultsx = pd.merge(resultsx, pd.get_dummies(resultsx.severity_type), left_index=True,right_index=True,how="left")
     resultsx = helpers.removecols(resultsx)
-    testx = pd.merge(testx,pd.get_dummies(testx.event_type),left_index=True,right_index=True,how="left")
-    testx = pd.merge(testx,pd.get_dummies(testx.resource_type),left_index=True,right_index=True,how="left")
+    # testx = pd.merge(testx,pd.get_dummies(testx.event_type),left_index=True,right_index=True,how="left")
+    testx = pd.merge(testx, pd.get_dummies(testx.resource_type), left_index=True,right_index=True,how="left")
+    testx = pd.merge(testx, pd.get_dummies(testx.severity_type), left_index=True,right_index=True,how="left")
     end = time.time()
     print(end - start)
     return resultsx, resultsy, testx
 
 
-def fits(resultsx,resultsy,tid,testx,predict):
+def fits(resultsx, resultsy, tid, testx, predict):
     print('Predictions')
     print('---------')
     start = time.time()
@@ -102,33 +120,52 @@ def fits(resultsx,resultsy,tid,testx,predict):
         del resultsx['id']
         del testx['id']
         testx = helpers.removecols(testx)
-    train_len = math.floor(len(resultsx)*(3/4))
+    train_len = math.floor(len(resultsx)*(5/6))
     train = resultsx.iloc[0:train_len]
     trainy = resultsy.iloc[0:train_len]
     holdout = resultsx.iloc[train_len:len(resultsx)]
     holdouty = resultsy.iloc[train_len:len(resultsx)]
-    n_est, mdep, lrate = 600, 7, .03
-    n_est2, mdep2, lrate2 = 700, 8, .025
+    n_est, mdep, lrate = 300, 7, .04
+    n_est2, mdep2, lrate2 = 400, 7, .035
     print('GB1')
     print('n_estimators:' + str(n_est) + ' -- mdep: ' + str(mdep) + ' -- lrate: ' + str(lrate))
     startgb1 = time.time()
-    clf1 = GradientBoostingClassifier(n_estimators=n_est, max_depth=mdep, learning_rate=lrate, max_features='auto', random_state=0).fit(train, trainy)
+    tuned_parameters = [
+      {'n_estimators': [400], 'max_depth': [3,4], 'learning_rate': [0.1, 0.08]},
+      {'n_estimators': [500], 'max_depth': [3,4], 'learning_rate': [0.08, 0.06]},
+      {'n_estimators': [700], 'max_depth': [3,4], 'learning_rate': [0.04, 0.02]},
+      {'n_estimators': [800], 'max_depth': [3,4], 'learning_rate': [0.03, 0.015]},
+    ]
+    scores = ['precision', 'recall']
+    for score in scores:
+        print("# Tuning hyper-parameters for %s" % score)
+        print()
+        clf = GridSearchCV(GradientBoostingClassifier(), tuned_parameters, cv=5,
+                           scoring='%s_weighted' % score).fit(train, trainy)
+        print("Best parameters set found on development set:")
+        print(clf.best_params_)
+        print("Grid scores on development set:")
+        for params, mean_score, scores in clf.grid_scores_:
+            print("%0.3f (+/-%0.03f) for %r"
+                  % (mean_score, scores.std() * 2, params))
+        print("Detailed classification report:")
+        print("The model is trained on the full development set.")
+        print("The scores are computed on the full evaluation set.")
+        print()
+        y_true, y_pred = holdouty, clf.predict(holdout)
+        print(classification_report(y_true, y_pred))
+        print()
+
+    clf1 = clf
     endgb1 = time.time()
     print(clf1.score(holdout, holdouty))
     print(endgb1 - startgb1)
-    print('GB2')
-    print('n_estimators:' + str(n_est2) + ' -- mdep: ' + str(mdep2) + ' -- lrate: ' + str(lrate2))
     startgb1 = time.time()
-    clf2 = GradientBoostingClassifier(n_estimators=n_est, max_depth=mdep2, learning_rate=lrate2,random_state=1).fit(train, trainy)
-    endgb1 = time.time()
-    print(clf2.score(holdout, holdouty))
-    print(endgb1 - startgb1)
-    startgb1 = time.time()
-    clf3 = RandomForestClassifier(n_estimators=700, max_features='auto').fit(train, trainy)
-    #nnet = MLPClassifier(algorithm='l-bfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=1).fit(train, trainy)
+    clf3 = RandomForestClassifier(n_estimators=200, max_features='auto').fit(train, trainy)
+    # nnet = MLPClassifier(algorithm='l-bfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=1).fit(train, trainy)
     endgb1 = time.time()
     print(endgb1 - startgb1)
-    clfsvm = SVC().fit(train, trainy)
+    clfsvm = SVC().fit(PolynomialFeatures(2).fit_transform(train), trainy)
     # SVC(C=1.0, cache_size=200, class_weight=None, coef0=0.0,
     # decision_function_shape='ovo', degree=3, gamma='auto', kernel='rbf',
     # max_iter=-1, probability=False, random_state=None, shrinking=True,
@@ -140,14 +177,12 @@ def fits(resultsx,resultsy,tid,testx,predict):
     #print(nnet.score(holdout, holdouty))
     print('Score on whole train set:')
     print(clf1.score(resultsx, resultsy))
-    print(clf2.score(resultsx, resultsy))
     print(clf3.score(resultsx, resultsy))
-    y_pred = clf2.predict(holdout)
     print('Number of columns in train/test:')
     print(len(resultsx.columns))
     print(len(testx.columns))
     hout = [holdout, holdouty, y_pred]
-    return clf1, clf2, clf3, clfsvm, tid, testx, hout
+    return clf1, clf3, clfsvm, tid, testx, hout
 
 
 def feature_imp(clf2,hout,feats):
@@ -167,7 +202,11 @@ def feature_imp(clf2,hout,feats):
     plt.show()
 
 
-def plot_predict(clf1, clf2, clf3, tid, testx, hout, predict):
+def plot_predict(clf1, clf3, tid, testx, hout, predict):
+    param_grid = [
+      {'C': [1, 10, 100, 1000], 'kernel': ['linear']},
+      {'C': [1, 10, 100, 1000], 'gamma': [0.001, 0.0001], 'kernel': ['rbf']},
+     ]
     predict = True
     start = time.time()
     [holdout, holdouty, y_pred] = hout
@@ -187,12 +226,10 @@ def plot_predict(clf1, clf2, clf3, tid, testx, hout, predict):
     # plt.ylabel('Deviance')
     if predict:
         pred1 = clf1.predict_proba(testx)
-        pred2 = clf2.predict_proba(testx)
         pred3 = clf3.predict_proba(testx)
-        df1 = pred_to_df(pred1,testx,tid)
-        df2 = pred_to_df(pred2,testx,tid)
-        df3 = pred_to_df(pred3,testx,tid)
-        rval = [df1, df2, df3, pred1, pred2, pred3]
+        df1 = pred_to_df(pred1, testx, tid)
+        df3 = pred_to_df(pred3, testx, tid)
+        rval = [df1, df3, pred1, pred3]
     else:
         rval = clf1
     end = time.time()
@@ -211,6 +248,41 @@ def pred_to_df(pred1, testx, tid):
     print(len(df3))
     return df3
 
+def collapse_ids(df):
+    df['fsev_log_feature'] = 0
+    df['fsev_location'] = 0
+    colsf = df['id'].ravel()
+    # get unique ids
+    unique = pd.Series(colsf).unique()
+    # all ids to list
+    colsf = colsf.tolist()
+    for ii in range(0,len(unique)):
+        subset = df.loc[df['id'] == unique[ii]]
+        sum_loc = subset['fsev_0_location'].sum()
+        sum_loc += subset['fsev_1_location'].sum()
+        sum_loc += subset['fsev_2_location'].sum()
+        sum_logfeat = subset['fsev_0_log_feature'].sum()
+        sum_logfeat += subset['fsev_1_log_feature'].sum()
+        sum_logfeat += subset['fsev_2_log_feature'].sum()
+        df = df.set_value(subset.index,'fsev_log_feature',(sum_logfeat/len(subset)))
+        df = df.set_value(subset.index,'fsev_location',(sum_loc/len(subset)))
+    df = df.drop_duplicates('id')
+    return df
+
+
+def collapse_after(df):
+    df['fsev_log_feature'] = 0
+    df['fsev_location'] = 0
+    colsf = df['id'].ravel()
+    # get unique ids
+    unique = pd.Series(colsf).unique()
+    # all ids to list
+    colsf = colsf.tolist()
+    current_prob = 0
+    for ii in range(0,len(unique)):
+        subset = df.loc[df['id'] == unique[ii]]
+    return 0
+
 
 # whole DataFrame
 # list of top 30
@@ -220,8 +292,9 @@ def rowquantilefn(df,list1,bname,bins):
         item = str(list1[i])
         rows = df.loc[df[bins] == item]
         percentile = (l_len - i)/(l_len)
-        df = df.set_value(rows.index,bname,percentile)
+        df = df.set_value(rows.index, bname, percentile)
     return df
+
 
 def summarize(results, binning, train):
     # get number of unique locations
@@ -285,15 +358,16 @@ def everything():
     # validation set
     return 1
 
+
 # pass in array of x per y, where x is the count per bucket
-def histogram(x,title,use_np,norm):
+def histogram(x: list, title: str, use_np: bool, norm):
     title = str(title)
     title = "More Histograms"
     if use_np:
         x = np.bincount(x)
     mu = np.average(x)
     #sigma = np.std(uniques)
-    td, dnow = dtime.date.today(), dtime.date.isoformat(td)
+    td, dnow = dtime.date.today(), dtime.date.isoformat()
     bin_count = int(np.max(x)/2.25)
     n, bins, patches = plt.hist(x, 8, normed=norm, facecolor='green', alpha=0.75)
     plt.xlabel('')
